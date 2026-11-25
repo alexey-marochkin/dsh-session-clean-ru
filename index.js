@@ -43,13 +43,15 @@
 import { homedir, tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { createHash } from 'node:crypto'
-import { rm, readdir } from 'node:fs/promises'
+import { lstat, realpath, rm, readdir } from 'node:fs/promises'
 import { existsSync, appendFileSync, mkdirSync } from 'node:fs'
+import { registerDeleteTool } from './agent-tool.js'
+import { inspectAttachments } from './attachments.js'
 
 const TAG = '[session-delete]'
 
 /** Private route prefix. `/api` and `/plugins` belong to other hosts. */
-const ROUTE_PREFIX = '/_dsh-session-clean'
+const ROUTE_PREFIX = '/_dsh-session-clean-ru'
 
 /** Largest group one pre-flight may cover; keeps the query string bounded. */
 const BATCH_LIMIT = 200
@@ -113,7 +115,7 @@ async function opLog(line) {
   }
 }
 
-export const name = 'session-delete'
+export const name = 'session-delete-ru'
 export const inject = ['webServer', 'connection', 'storageDomain']
 
 /**
@@ -135,13 +137,13 @@ function probeBusy(ctx, sessionId) {
   if (!agents || typeof agents.get !== 'function') {
     // Registry absent: refuse to guess. Deletion stays available only when we
     // can positively say the session has no live agent.
-    return { busy: false, detail: 'agents-unavailable' }
+    return { busy: true, detail: 'agents-unavailable' }
   }
   let agent
   try {
     agent = agents.get(sessionId)
   } catch {
-    agent = undefined
+    return { busy: true, detail: 'agent-probe-failed' }
   }
   if (agent === undefined || agent === null) return { busy: false, detail: 'no-live-agent' }
   const snapshot =
@@ -177,7 +179,7 @@ function serviceOf(ctx, key) {
  * the ONLY reason a fully erased session keeps a sidebar row: the client's
  * session list is the union of the persistence layer and
  * `ctx.sessions.list()`, live precedence winning (session-query
- * `listSessions`), and the sidebar's 未分组 bucket is exactly "a listed id no
+ * `listSessions`), and the sidebar's «Без группы» bucket is exactly "a listed id no
  * workspace accounts for".
  * @param {object} ctx - the Host plugin context.
  * @param {string} sessionId - the session to test.
@@ -250,74 +252,6 @@ async function unloadLiveSession(ctx, sessionId) {
 }
 
 /**
- * DEGRADED FALLBACK — hide a row we could not unload, and label it as such.
- *
- * Used only when {@link unloadLiveSession} fails its capability probe (a DSH
- * build that moved the internals). It writes the id into DSH's global archive
- * set, which makes the default sidebar view (`archivedFilter: 'default'`)
- * filter the row out. Be exact about what this is and is not:
- *
- *   * NOT a deletion path. The row still exists; a user who switches the
- *     sidebar filter to “show archived” / “only archived” sees it return with
- *     an 已归档 badge, and unarchiving puts it back under 未分组 — the plugin
- *     only self-heals at its NEXT start;
- *   * it does freeze the session (the archived-session gate rejects
- *     `agent/pre-step`), which is what stops a resident session from writing
- *     new events and re-persisting itself;
- *   * the caller must therefore answer `unloaded:false, hidden:true` and the
- *     UI must say “hidden, not deleted”.
- *
- * @param {object} ctx - the Host plugin context.
- * @param {string} sessionId - the session to hide from the default list.
- * @returns {Promise<boolean>} whether the archived marker was written.
- */
-async function hideLiveRemnant(ctx, sessionId) {
-  const facility = ctx.get?.('storageDomain') ?? ctx.storageDomain
-  const domain = facility?.get?.('workspace')
-  if (!domain?.global) return false
-  const state = { ...domain.global.get() }
-  const archived = state.archivedSessionIds ?? []
-  if (archived.includes(sessionId)) return false
-  state.archivedSessionIds = [sessionId, ...archived]
-  await domain.global.set(state)
-  return true
-}
-
-/**
- * Drop archived/pinned ids whose session payload no longer exists anywhere.
- * These are dangles left by deleting a session that was still loaded in memory
- * (see {@link hideLiveRemnant}); a session id without a directory can never be
- * opened again, so the marker is pure noise.
- * @param {object} ctx - the Host plugin context.
- * @returns {Promise<number>} how many dangling ids were dropped.
- */
-async function pruneDanglingIds(ctx) {
-  const facility = ctx.get?.('storageDomain') ?? ctx.storageDomain
-  const domain = facility?.get?.('workspace')
-  if (!domain?.global) return 0
-  const state = { ...domain.global.get() }
-  const archived = state.archivedSessionIds ?? []
-  const pinned = state.pinnedSessionIds ?? []
-  if (archived.length === 0 && pinned.length === 0) return 0
-
-  const root = sessionsRoot()
-  if (!existsSync(root)) return 0
-  const { readdir } = await import('node:fs/promises')
-  const workspaceDirs = await readdir(root)
-  const alive = (id) => workspaceDirs.some((dir) => existsSync(join(root, dir, id)))
-
-  const nextArchived = archived.filter(alive)
-  const nextPinned = pinned.filter(alive)
-  const dropped = archived.length - nextArchived.length + (pinned.length - nextPinned.length)
-  if (dropped === 0) return 0
-  state.archivedSessionIds = nextArchived
-  state.pinnedSessionIds = nextPinned
-  await domain.global.set(state)
-  await opLog(`启动清理: 移除 ${dropped} 个悬空标记（archived ${archived.length}→${nextArchived.length}, pinned ${pinned.length}→${nextPinned.length}）`)
-  return dropped
-}
-
-/**
  * Remove the session from the workspace registry through the live domain
  * handle: global archive/pin sets plus every workspace's `sessionIds` row.
  * Writes emit `domain/changed`, so the open sidebar updates itself.
@@ -328,9 +262,9 @@ async function pruneDanglingIds(ctx) {
 async function forgetInRegistry(ctx, sessionId) {
   const facility = ctx.get?.('storageDomain') ?? ctx.storageDomain
   const domain = facility?.get?.('workspace')
-  await opLog(`forgetInRegistry: facility=${facility ? '有' : '无'} domain=${domain ? domain.name ?? 'workspace' : '无'}`)
+  await opLog(`forgetInRegistry: facility=${facility ? 'да' : 'нет'} domain=${domain ? domain.name ?? 'workspace' : 'нет'}`)
   if (!domain || typeof domain.table !== 'function' || !domain.global) {
-    throw new Error('workspace 存储域未打开，无法从注册表移除该会话')
+    throw new Error('Реестр рабочих областей недоступен. Удаление отменено.')
   }
 
   const removed = { workspaces: [], archived: false, pinned: false }
@@ -340,7 +274,7 @@ async function forgetInRegistry(ctx, sessionId) {
   const globalState = { ...domain.global.get() }
   const archiveSet = globalState.archivedSessionIds ?? []
   const pinSet = globalState.pinnedSessionIds ?? []
-  await opLog(`registry 全局: archived=${archiveSet.length} pinned=${pinSet.length} 含目标 archived=${archiveSet.includes(sessionId)} pinned=${pinSet.includes(sessionId)}`)
+  await opLog(`Реестр: archived=${archiveSet.length} pinned=${pinSet.length} наличие цели: archived=${archiveSet.includes(sessionId)} pinned=${pinSet.includes(sessionId)}`)
   if (archiveSet.includes(sessionId)) {
     removed.archived = true
     globalState.archivedSessionIds = archiveSet.filter((id) => id !== sessionId)
@@ -357,7 +291,7 @@ async function forgetInRegistry(ctx, sessionId) {
   for (const [workspaceId, record] of table.entries()) {
     scanned += 1
     const owned = Array.isArray(record?.sessionIds) && record.sessionIds.includes(sessionId)
-    await opLog(`registry 扫描 ${workspaceId}(${record?.title ?? '?'}): sessions=${record?.sessionIds?.length ?? '?'} 含目标=${owned}`)
+    await opLog(`Проверка области ${workspaceId}(${record?.title ?? '?'}): sessions=${record?.sessionIds?.length ?? '?'} содержит выбранный чат: ${owned}`)
     if (!owned) continue
     const next = {
       ...record,
@@ -367,7 +301,7 @@ async function forgetInRegistry(ctx, sessionId) {
     await table.update(workspaceId, () => next)
     removed.workspaces.push(record.title || workspaceId)
   }
-  await opLog(`registry 扫描完成: 共 ${scanned} 个工作区, 命中 ${removed.workspaces.length}`)
+  await opLog(`Проверено областей: ${scanned}, совпадений: ${removed.workspaces.length}`)
   return removed
 }
 
@@ -380,10 +314,23 @@ async function eraseSessionLog(sessionId) {
   const removed = []
   const root = sessionsRoot()
   if (!existsSync(root)) return removed
-  for (const workspaceDir of await readdir(root)) {
-    const target = join(root, workspaceDir, sessionId)
-    if (!existsSync(target)) continue
-    await rm(target, { recursive: true, force: true })
+  const canonicalRoot = await realpath(root)
+  const targets = []
+  for (const entry of await readdir(canonicalRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue
+    const target = join(canonicalRoot, entry.name, sessionId)
+    const info = await lstat(target).catch(error => {
+      if (error?.code === 'ENOENT') return undefined
+      throw error
+    })
+    if (!info) continue
+    if (!info.isDirectory() || info.isSymbolicLink() || await realpath(target) !== target) {
+      throw Object.assign(new Error('Путь журнала перенаправлен. Удаление отменено.'), { statusCode: 409 })
+    }
+    targets.push(target)
+  }
+  for (const target of targets) {
+    await rm(target, { recursive: true })
     removed.push(target)
   }
   return removed
@@ -419,7 +366,7 @@ async function eraseSpill(sessionId) {
       await rm(target, { recursive: true, force: true })
       removed.push(target)
     } catch (error) {
-      await opLog(`spill 删除失败 ${target}: ${error?.message ?? error}`)
+      await opLog(`Не удалось удалить сохранённый вывод ${target}: ${error?.message ?? error}`)
     }
   }
   return removed
@@ -456,13 +403,13 @@ async function eraseProjcache(ctx, sessionId) {
             // pre-check is needed and a missing record stays quiet.
             if (await table.delete(key)) removed.push(`session_projcache#sessions:${key}`)
           } catch (error) {
-            await opLog(`projcache 域删除失败 ${key}: ${error?.message ?? error}`)
+            await opLog(`Не удалось удалить запись кэша ${key}: ${error?.message ?? error}`)
           }
         }
       }
     }
   } catch (error) {
-    await opLog(`projcache 域不可用，改用文件删除: ${error?.message ?? error}`)
+    await opLog(`Домен кэша недоступен; пробуем удалить файл: ${error?.message ?? error}`)
   }
   const cacheFiles = [
     join(projcacheSessionsDir(), `${sessionId}.json`),
@@ -474,29 +421,10 @@ async function eraseProjcache(ctx, sessionId) {
       await rm(cacheFile, { force: true })
       removed.push(cacheFile)
     } catch (error) {
-      await opLog(`projcache 文件删除失败 ${cacheFile}: ${error?.message ?? error}`)
+      await opLog(`Не удалось удалить файл кэша ${cacheFile}: ${error?.message ?? error}`)
     }
   }
   return removed
-}
-
-/**
- * Re-purge the projection cache shortly after a deletion that could NOT unload
- * the session. A deleted-but-resident session may still hold a pending
- * write-behind timer, and that timer rewrites the cache document once (the
- * cache's own "detach" flush only runs on the real unload path). One bounded,
- * unref'd retry keeps that residue from sticking.
- * @param {object} ctx - the Host plugin context.
- * @param {string} sessionId - the session to re-purge.
- * @returns {void}
- */
-function scheduleResidualPurge(ctx, sessionId) {
-  const timer = setTimeout(() => {
-    void eraseProjcache(ctx, sessionId)
-      .then((again) => opLog(`残留复清: ${sessionId} → ${again.length} 处`))
-      .catch((error) => opLog(`残留复清失败: ${sessionId} ${error?.message ?? error}`))
-  }, 8000)
-  timer.unref?.()
 }
 
 /**
@@ -517,12 +445,18 @@ async function erasePayload(ctx, sessionId) {
 /** Read one JSON body; empty bodies resolve to {}. */
 async function readJsonBody(req) {
   const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
+  let size = 0
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    size += bytes.length
+    if (size > 8192) throw Object.assign(new Error('Слишком большой запрос'), { statusCode: 413 })
+    chunks.push(bytes)
+  }
   if (chunks.length === 0) return {}
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'))
   } catch {
-    const error = new Error('请求体不是合法 JSON')
+    const error = new Error('Тело запроса не является корректным JSON')
     error.statusCode = 400
     throw error
   }
@@ -535,40 +469,117 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
+// Удаляет одну сессию одинаково для интерфейса и инструмента агента.
+async function deleteSession(ctx, sessionId, log, revalidate) {
+  // Hard gate: never delete a session that still owns live work.
+  const busy = probeBusy(ctx, sessionId)
+  const resident = isResident(ctx, sessionId)
+  const persistence = serviceOf(ctx, 'sessionPersistence')
+  if (!resident && !await persistence?.stat(sessionId)) {
+    throw Object.assign(new Error('Сессия не найдена в хранилище DSH'), { statusCode: 404 })
+  }
+  await opLog(`delete ${sessionId} busy=${busy.busy}(${busy.detail}) resident=${resident}`)
+  if (busy.busy) {
+    throw Object.assign(new Error("У чата есть незавершённая работа"), { statusCode: 409 })
+  }
+
+  const attachments = await inspectAttachments(serviceOf(ctx, 'sessionQuery'), sessionId)
+  // За время чтения журналов могло появиться новое задание или истечь подтверждение.
+  const activity = await ctx.waterfall?.('workspace/session-activity', { sessionId }, () => Promise.resolve([]))
+  await revalidate?.()
+  if (activity?.length || probeBusy(ctx, sessionId).busy || isResident(ctx, sessionId) !== resident) {
+    throw Object.assign(new Error('Состояние чата изменилось. Повторите удаление.'), { statusCode: 409 })
+  }
+
+  // 1. Real unload FIRST, while the session is proven idle. Doing it
+  //    before the payload erase also lets the projection cache's
+  //    mandatory "detach" checkpoint land before that record is wiped,
+  //    and it closes the log writer so nothing can re-persist later.
+  const unload = resident
+    ? await unloadLiveSession(ctx, sessionId)
+    : { unloaded: false, detail: 'not-resident' }
+  await opLog(`Выгрузка открытого чата: unloaded=${unload.unloaded} (${unload.detail})`)
+
+  if (resident && !unload.unloaded) {
+    throw Object.assign(new Error('Не удалось безопасно выгрузить чат. Данные не удалены.'), { statusCode: 409 })
+  }
+
+  // 2. Registry: global archive/pin sets plus every workspace row.
+  const registry = await forgetInRegistry(ctx, sessionId)
+  await opLog(`Чат исключён из реестра: workspaces=[${registry.workspaces.join(', ')}] archived=${registry.archived} pinned=${registry.pinned}`)
+
+  // 3. Durable payload: the session directory + its cache record.
+  const removedPaths = await erasePayload(ctx, sessionId)
+
+  const live = isResident(ctx, sessionId)
+  if (live) {
+    throw Object.assign(new Error('Сессия снова открылась во время удаления. Проверьте её состояние.'), { statusCode: 409 })
+  }
+  await opLog(`Удалён чат ${sessionId}; файловых записей: ${removedPaths.length}: ${removedPaths.join(' | ')}`)
+  log(`Удалён чат ${sessionId} (рабочая область: ${registry.workspaces.join(', ') || 'неизвестно'}; файловых записей: ${removedPaths.length}; выгрузка=${unload.unloaded})`)
+  return {
+    ok: true,
+    ...registry,
+    removed: removedPaths,
+    live,
+    unloaded: unload.unloaded,
+    unloadDetail: unload.detail,
+    hidden: false,
+    attachments,
+  }
+}
+
 export function apply(ctx) {
   const log = (message, error) => {
     if (error === undefined) console.log(`${TAG} ${message}`)
     else console.warn(`${TAG} ${message}`, error)
   }
 
+  let deletion = Promise.resolve()
+  // Сериализует удаление и повторно проверяет выбранный чат перед изменением данных.
+  const removeSession = (sessionId, revalidate) => {
+    const result = deletion.then(async () => {
+      if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) {
+        throw Object.assign(new Error('Недопустимый идентификатор сессии'), { statusCode: 400 })
+      }
+      return deleteSession(ctx, sessionId, log, revalidate)
+    })
+    deletion = result.catch(() => {})
+    return result
+  }
+  ctx.inject?.(['tools', 'sessionQuery', 'approval'], scope => {
+    scope.effect(() => registerDeleteTool(scope, removeSession))
+  })
+
   const server = ctx.get?.('webServer') ?? ctx.webServer
   if (!server || typeof server.register !== 'function') {
-    log('没有 webServer 服务，删除接口不可用（插件其余部分不受影响）')
+    log('Сервис webServer недоступен (HTTP-интерфейс удаления не запущен)')
     return
   }
 
   /** Same trust gate the shipped /api bridge uses; plugin routes are public otherwise. */
   const rejectUntrusted = (req, res) => {
     const connection = ctx.get?.('connection') ?? ctx.connection
-    if (!connection) return false
+    if (!connection) {
+      sendJson(res, 403, { error: 'Проверка доступа недоступна' })
+      return true
+    }
     try {
       if (typeof connection.requestRejection === 'function') {
         const rejection = connection.requestRejection(req)
         if (rejection === undefined || rejection === null) return false
-        sendJson(res, Number(rejection) || 403, { error: '未通过连接信任检查' })
+        sendJson(res, Number(rejection) || 403, { error: 'Запрос не прошёл проверку доступа' })
         return true
       }
       if (typeof connection.admit === 'function') {
         const admission = connection.admit(req)
-        if (admission !== null && typeof admission === 'object' && 'rejection' in admission) {
-          sendJson(res, Number(admission.rejection) || 403, { error: '未通过连接信任检查' })
-          return true
-        }
+        if (admission?.peer) return false
       }
     } catch (error) {
-      log('连接信任检查本身出错，放行本次请求', error)
+      log('Проверка доступа завершилась ошибкой', error)
     }
-    return false
+    sendJson(res, 403, { error: 'Запрос не прошёл проверку доступа' })
+    return true
   }
 
   const route = {
@@ -583,7 +594,7 @@ export function apply(ctx) {
       try {
         if (url.pathname === `${ROUTE_PREFIX}/status` && req.method === 'GET') {
           const sessionId = url.searchParams.get('sessionId') ?? ''
-          if (!SESSION_ID_RE.test(sessionId)) throw Object.assign(new Error('非法的 sessionId'), { statusCode: 400 })
+          if (!SESSION_ID_RE.test(sessionId)) throw Object.assign(new Error('Недопустимый идентификатор сессии'), { statusCode: 400 })
           const probe = { ...probeBusy(ctx, sessionId), resident: isResident(ctx, sessionId) }
           await opLog(`status ${sessionId} → ${JSON.stringify(probe)}`)
           sendJson(res, 200, probe)
@@ -596,12 +607,12 @@ export function apply(ctx) {
         if (url.pathname === `${ROUTE_PREFIX}/precheck` && req.method === 'GET') {
           const raw = url.searchParams.get('sessionIds') ?? ''
           const ids = raw.split(',').map((part) => part.trim()).filter((part) => part !== '')
-          if (ids.length === 0) throw Object.assign(new Error('sessionIds 不能为空'), { statusCode: 400 })
+          if (ids.length === 0) throw Object.assign(new Error('Список сессий пуст'), { statusCode: 400 })
           if (ids.length > BATCH_LIMIT) {
-            throw Object.assign(new Error(`一次最多预检 ${BATCH_LIMIT} 个会话`), { statusCode: 400 })
+            throw Object.assign(new Error(`За раз можно проверить не более ${BATCH_LIMIT} сессий`), { statusCode: 400 })
           }
           for (const id of ids) {
-            if (!SESSION_ID_RE.test(id)) throw Object.assign(new Error('非法的 sessionId'), { statusCode: 400 })
+            if (!SESSION_ID_RE.test(id)) throw Object.assign(new Error('Недопустимый идентификатор сессии'), { statusCode: 400 })
           }
           const sessions = ids.map((id) => ({
             sessionId: id,
@@ -609,100 +620,43 @@ export function apply(ctx) {
             resident: isResident(ctx, id),
           }))
           const busy = sessions.filter((entry) => entry.busy)
-          await opLog(`precheck ${ids.length} 个会话，忙碌 ${busy.length} 个`)
+          await opLog(`precheck ${ids.length} чатов; занято: ${busy.length}`)
           sendJson(res, 200, { total: ids.length, ok: busy.length === 0, busy, sessions })
           return
         }
         if (url.pathname === `${ROUTE_PREFIX}/delete` && req.method === 'POST') {
+          if (req.headers?.['content-type']?.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
+            sendJson(res, 415, { error: 'Для удаления требуется запрос application/json' })
+            return
+          }
           const body = await readJsonBody(req)
           const sessionId = body?.sessionId
           if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) {
-            throw Object.assign(new Error('非法的 sessionId'), { statusCode: 400 })
+            throw Object.assign(new Error('Недопустимый идентификатор сессии'), { statusCode: 400 })
           }
-          // Hard gate: never delete a session that still owns live work.
-          const busy = probeBusy(ctx, sessionId)
-          const resident = isResident(ctx, sessionId)
-          await opLog(`delete ${sessionId} busy=${busy.busy}(${busy.detail}) resident=${resident}`)
-          if (busy.busy) {
-            sendJson(res, 409, { ok: false, error: '会话仍有进行中的工作，无法删除', detail: busy.detail })
-            return
-          }
-
-          // 1. Real unload FIRST, while the session is proven idle. Doing it
-          //    before the payload erase also lets the projection cache's
-          //    mandatory "detach" checkpoint land before that record is wiped,
-          //    and it closes the log writer so nothing can re-persist later.
-          const unload = resident
-            ? await unloadLiveSession(ctx, sessionId)
-            : { unloaded: false, detail: 'not-resident' }
-          await opLog(`卸载活会话: unloaded=${unload.unloaded} (${unload.detail})`)
-
-          // 2. Registry: global archive/pin sets plus every workspace row.
-          const registry = await forgetInRegistry(ctx, sessionId)
-          await opLog(`registry 移除完成: workspaces=[${registry.workspaces.join('、')}] archived=${registry.archived} pinned=${registry.pinned}`)
-
-          // 3. Durable payload: the session directory + its cache record.
-          let removedPaths = []
-          try {
-            removedPaths = await erasePayload(ctx, sessionId)
-          } catch (error) {
-            // Registry is already consistent; report the payload failure but
-            // do not roll the sidebar removal back.
-            await opLog(`载荷清理失败（注册表已移除）: ${error?.message ?? error}`)
-            log(`会话载荷清理失败（注册表已移除）：${sessionId}`, error)
-          }
-
-          // 4. Still resident ⇒ the unload probe failed. Degrade honestly:
-          //    freeze + hide it, report that, and re-purge the cache once its
-          //    pending write-behind timer has had a chance to fire.
-          let hidden = false
-          const live = isResident(ctx, sessionId)
-          if (live) {
-            try {
-              hidden = await hideLiveRemnant(ctx, sessionId)
-              await opLog(`活会话未卸载，降级隐藏: hidden=${hidden}`)
-            } catch (error) {
-              await opLog(`活会话残留隐藏失败: ${error?.message ?? error}`)
-            }
-            scheduleResidualPurge(ctx, sessionId)
-          }
-          await opLog(`已删除会话 ${sessionId}，文件 ${removedPaths.length} 处: ${removedPaths.join(' | ')}`)
-          log(`已删除会话 ${sessionId}（工作区：${registry.workspaces.join('、') || '未知'}，文件 ${removedPaths.length} 处，卸载=${unload.unloaded}）`)
-          sendJson(res, 200, {
-            ok: true,
-            ...registry,
-            removed: removedPaths,
-            live,
-            unloaded: unload.unloaded,
-            unloadDetail: unload.detail,
-            hidden,
-          })
+          sendJson(res, 200, await removeSession(sessionId))
           return
         }
         await opLog(`404 ${req.method} ${req.url}`)
-        sendJson(res, 404, { error: '未知接口' })
+        sendJson(res, 404, { error: 'Неизвестный маршрут' })
       } catch (error) {
         const status = Number(error?.statusCode) || 500
         await opLog(`ERROR ${req.method} ${req.url} → ${status}: ${error instanceof Error ? error.message : String(error)}\n${error instanceof Error ? error.stack : ''}`)
-        log(`请求失败：${req?.url ?? ''}`, error)
+        log(`Ошибка запроса: ${req?.url ?? ''}`, error)
         sendJson(res, status, { error: error instanceof Error ? error.message : String(error) })
       }
     },
   }
   let routeDisposer
   if (typeof ctx.effect === 'function') {
-    // 注册纳入插件生命周期：卸载/热替换时自动摘除路由。裸调用留下的路由会
-    // 永久占据 webserver 前缀表，让同一进程内的任何更新/重装撞
-    // duplicate prefix route 而失败（2026-11-16/17 更新事故根因）。
+    // Эффект снимает маршрут при выгрузке, чтобы при обновлении не возникал конфликт префиксов.
     ctx.effect(() => server.register(route), 'session-delete: routes')
   } else {
-    // 旧宿主没有 ctx.effect：按 cordis 约定把 disposer 返回给 loader。
+    // Для старых версий без ctx.effect возвращаем функцию очистки загрузчику.
     routeDisposer = server.register(route)
   }
 
-  log(`删除接口就绪：${ROUTE_PREFIX}/status 与 ${ROUTE_PREFIX}/delete`)
+  log(`Интерфейс удаления готов: ${ROUTE_PREFIX}/status и ${ROUTE_PREFIX}/delete`)
   void opLog(`plugin activated (session-delete), routes on ${ROUTE_PREFIX}`)
-  // Self-heal markers left by deleting a session that was still loaded in memory.
-  void pruneDanglingIds(ctx).catch((error) => opLog(`启动清理失败: ${error?.message ?? error}`))
   return routeDisposer
 }

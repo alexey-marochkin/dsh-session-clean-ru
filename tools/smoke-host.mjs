@@ -15,13 +15,12 @@
 //   5. the session's spill directory is removed by its exact backend naming
 //      rules (session hash dir only — roots, siblings and foreign
 //      `dsh-spill-*` shapes survive).
-import { readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const FAKE_HOME = join(tmpdir(), 'dsh-session-clean-smoke')
-rmSync(FAKE_HOME, { recursive: true, force: true })
+const FAKE_HOME = mkdtempSync(join(tmpdir(), 'dsh-session-clean-smoke-'))
 const TARGET = 'session-b37044e4-c5f2-4de2-b1fd-171e2778603d'
 const COLD = 'session-33333333-3333-4333-8333-333333333333'
 const LIVE = 'session-22222222-2222-4222-8222-222222222222'
@@ -48,10 +47,8 @@ writeFileSync(join(FAKE_TMP, 'dsh-spill-abc123', 'session-backup', 'keep.txt'), 
 mkdirSync(join(FAKE_TMP, 'dsh-spill-test-fixture', spillDirName(TARGET)), { recursive: true })
 writeFileSync(join(FAKE_TMP, 'dsh-spill-test-fixture', spillDirName(TARGET), 'keep.txt'), 'foreign root shape')
 
-const real = JSON.parse(readFileSync(process.env.USERPROFILE + '/.dsh/storages/workspace.json', 'utf8'))
-
-const globalState = JSON.parse(JSON.stringify(real.global))
-const workspaces = new Map(Object.entries(JSON.parse(JSON.stringify(real.tables.workspaces))))
+const globalState = { workspaceIds: ['ws-one'], archivedSessionIds: [TARGET], pinnedSessionIds: [] }
+const workspaces = new Map([['ws-one', { title: 'Тестовая область', sessionIds: [TARGET] }]])
 
 // ---- Storage domains -----------------------------------------------------
 // `workspace` keeps the real registry shape; `session_projcache` pins the real
@@ -137,13 +134,48 @@ const agents = {
 }
 
 let captured = null
+let rejection
+let activity = []
+let tool
+let approvalDecision = 'rejected'
+const sharedHash = 'a'.repeat(64)
+const uniqueHash = 'b'.repeat(64)
+const unrelatedHash = 'c'.repeat(64)
+const survivor = 'session-11111111-1111-4111-8111-111111111111'
+// Вложения стенда проверяются на диске, отдельно от удаления журнала.
+const attachmentPaths = [sharedHash, uniqueHash, unrelatedHash].map(hash => {
+  const dir = join(FAKE_HOME, 'attachments', 'v1', 'objects', hash.slice(0, 2))
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, hash)
+  writeFileSync(path, 'test attachment')
+  return path
+})
+const services = {
+  tools: { register(definition) { tool = definition; return () => {} } },
+  approval: { async request() { return approvalDecision } },
+  sessionQuery: {
+    async listSessions() { return [COLD, survivor].map(id => ({ header: { id } })) },
+    async readTitleSnapshots(ids) {
+      return ids.map(id => ({ status: 'fulfilled', value: { session: { id }, title: { title: id === COLD ? 'Удалить через агента' : 'Сохранить' } } }))
+    },
+    async readTitle() { return { title: 'Удалить через агента' } },
+    async readSession(id) {
+      const hashes = id === TARGET ? [sharedHash, uniqueHash] : id === survivor ? [sharedHash, unrelatedHash] : []
+      return { events: hashes.map(hash => ({ type: 'image', attachment: { attachmentId: `sha256:${hash}` } })) }
+    },
+  },
+}
 const ctx = {
+  inject(_keys, apply) { apply({ get: key => services[key], effect: start => start() }) },
+  waterfall: async () => activity,
   get: (key) => ({
     webServer: { register(route) { captured = route } },
-    connection: undefined,
+    connection: { requestRejection: () => rejection },
     storageDomain,
     agents,
     sessions: unloadSupported ? sessions : strippedSessions,
+    sessionQuery: services.sessionQuery,
+    sessionPersistence: { async stat(id) { return [TARGET, COLD].includes(id) && existsSync(join(FAKE_HOME, 'sessions', 'ws-one', id)) ? { header: { id } } : undefined } },
   }[key]),
   storageDomain,
   agents,
@@ -153,16 +185,11 @@ await import('../index.js').then(async (mod) => {
   mod.apply(ctx)
 })
 
-// `apply` fires the startup self-heal without awaiting it, and that self-heal
-// legitimately drops archived/pinned ids whose session directory does not
-// exist — this fake home only holds a few. Let it settle so every snapshot
-// below is stable.
-await new Promise((resolve) => setTimeout(resolve, 50))
-
 function call(method, url, bodyObj) {
   return new Promise(async (resolveRes) => {
     const chunks = bodyObj ? [Buffer.from(JSON.stringify(bodyObj))] : []
-    const req = { method, url, async *[Symbol.asyncIterator]() { for (const c of chunks) yield c } }
+    const req = { method, url, headers: bodyObj ? { 'content-type': 'application/json' } : {},
+      async *[Symbol.asyncIterator]() { for (const c of chunks) yield c } }
     const res = {
       statusCode: 0, headers: {},
       setHeader(k, v) { this.headers[k] = v },
@@ -186,11 +213,27 @@ const attachToWorkspace = (id, index = 0) => {
 
 // ---- 1. cold session: no store, no archive marker ------------------------
 const before = globalState.archivedSessionIds.length
-const st = await call('GET', '/_dsh-session-clean/status?sessionId=' + TARGET)
+const st = await call('GET', '/_dsh-session-clean-ru/status?sessionId=' + TARGET)
 check('status reports busy=false and resident=false', st.body?.busy === false && st.body?.resident === false, JSON.stringify(st.body))
 
-const del = await call('POST', '/_dsh-session-clean/delete', { sessionId: TARGET })
+rejection = 403
+const denied = await call('POST', '/_dsh-session-clean-ru/delete', { sessionId: TARGET })
+check('запрос без допуска не изменяет архив и журнал', denied.status === 403 &&
+  globalState.archivedSessionIds.includes(TARGET) && existsSync(join(FAKE_HOME, 'sessions', 'ws-one', TARGET)))
+rejection = undefined
+const invalidType = await call('POST', '/_dsh-session-clean-ru/delete')
+check('запрос без JSON отклонён до удаления', invalidType.status === 415 &&
+  existsSync(join(FAKE_HOME, 'sessions', 'ws-one', TARGET)))
+activity = [{ kind: 'job' }]
+const active = await call('POST', '/_dsh-session-clean-ru/delete', { sessionId: TARGET })
+check('активность провайдера блокирует удаление и сохраняет журнал', active.status === 409 &&
+  globalState.archivedSessionIds.includes(TARGET) && existsSync(join(FAKE_HOME, 'sessions', 'ws-one', TARGET)))
+activity = []
+const del = await call('POST', '/_dsh-session-clean-ru/delete', { sessionId: TARGET })
 check('cold delete succeeds', del.status === 200 && del.body?.ok === true, `status=${del.status}`)
+check('в онлайне общее, непроверенное и постороннее вложения остаются на диске',
+  del.body?.attachments?.candidates === 2 && del.body.attachments.shared === 1 &&
+  del.body.attachments.removed === 0 && attachmentPaths.every(path => existsSync(path)))
 check('cold delete is not "live" and not "unloaded"', del.body?.live === false && del.body?.unloaded === false)
 check('cold delete drops the id from the archive set and adds nothing',
   !globalState.archivedSessionIds.includes(TARGET) && globalState.archivedSessionIds.length <= before,
@@ -209,6 +252,18 @@ check('unrelated session untouched',
   existsSync(join(FAKE_HOME, 'sessions', 'ws-two', 'session-11111111-1111-4111-8111-111111111111', 'session.v4.jsonl.zstd')))
 check('workspace row cleaned', ![...workspaces.values()].some((w) => w.sessionIds.includes(TARGET)))
 
+// Тот же обработчик вызывается инструментом, но только после решения пользователя.
+const coldDir = join(FAKE_HOME, 'sessions', 'ws-one', COLD)
+mkdirSync(coldDir, { recursive: true })
+writeFileSync(join(coldDir, 'session.v4.jsonl.zstd'), 'payload')
+attachToWorkspace(COLD)
+const exec = { agent: { session: { id: TARGET } }, name: tool.name, callId: 'test-call', signal: new AbortController().signal }
+const args = { title: 'Удалить через агента' }
+check('отказ агента сохраняет журнал', !(await tool.execute(args, exec)).ok && existsSync(coldDir))
+approvalDecision = 'allowed-once'
+check('после подтверждения агент удаляет журнал и запись рабочей области',
+  (await tool.execute(args, exec)).ok && !existsSync(coldDir) && ![...workspaces.values()].some(row => row.sessionIds.includes(COLD)))
+
 // ---- 2. resident session with the unload primitive: REAL unload -----------
 resident.set(LIVE, { id: LIVE, getSnapshot: () => idleSnapshot })
 attachToWorkspace(LIVE)
@@ -216,7 +271,7 @@ mkdirSync(join(FAKE_HOME, 'sessions', 'ws-two', LIVE), { recursive: true })
 writeFileSync(join(FAKE_HOME, 'sessions', 'ws-two', LIVE, 'session.v4.jsonl.zstd'), 'live')
 const beforeLive = globalState.archivedSessionIds.length
 
-const liveDel = await call('POST', '/_dsh-session-clean/delete', { sessionId: LIVE })
+const liveDel = await call('POST', '/_dsh-session-clean-ru/delete', { sessionId: LIVE })
 check('resident delete reports unloaded=true', liveDel.body?.unloaded === true, `detail=${liveDel.body?.unloadDetail}`)
 check('resident delete reports live=false after unloading', liveDel.body?.live === false)
 check('resident delete writes NO archive marker', !globalState.archivedSessionIds.includes(LIVE) && globalState.archivedSessionIds.length === beforeLive)
@@ -233,18 +288,16 @@ mkdirSync(join(FAKE_HOME, 'sessions', 'ws-two', DEGRADED), { recursive: true })
 writeFileSync(join(FAKE_HOME, 'sessions', 'ws-two', DEGRADED, 'session.v4.jsonl.zstd'), 'degraded')
 const beforeDegraded = globalState.archivedSessionIds.length
 
-const degDel = await call('POST', '/_dsh-session-clean/delete', { sessionId: DEGRADED })
-check('degraded delete reports unloaded=false', degDel.body?.unloaded === false, `detail=${degDel.body?.unloadDetail}`)
-check('degraded delete reports live=true and hidden=true', degDel.body?.live === true && degDel.body?.hidden === true)
-check('degraded delete writes the archive marker as its last resort',
-  globalState.archivedSessionIds.includes(DEGRADED) && globalState.archivedSessionIds.length === beforeDegraded + 1)
-check('degraded delete still erases payload + cache',
-  !existsSync(join(FAKE_HOME, 'sessions', 'ws-two', DEGRADED)) && projcacheDeletes.includes(DEGRADED))
+const degDel = await call('POST', '/_dsh-session-clean-ru/delete', { sessionId: DEGRADED })
+check('без выгрузки сервер отказывает в удалении', degDel.status === 409)
+check('отказ не меняет архив, журнал и кэш',
+  globalState.archivedSessionIds.length === beforeDegraded &&
+  existsSync(join(FAKE_HOME, 'sessions', 'ws-two', DEGRADED)) && !projcacheDeletes.includes(DEGRADED))
 
 // ---- 4. guards -----------------------------------------------------------
-const busy = await call('GET', '/_dsh-session-clean/status?sessionId=session-00000000-0000-4000-8000-000000000000')
+const busy = await call('GET', '/_dsh-session-clean-ru/status?sessionId=session-00000000-0000-4000-8000-000000000000')
 check('unknown id probes clean', busy.body?.busy === false, JSON.stringify(busy.body))
-const bad = await call('POST', '/_dsh-session-clean/delete', { sessionId: 'rm -rf /' })
+const bad = await call('POST', '/_dsh-session-clean-ru/delete', { sessionId: 'rm -rf /' })
 check('malformed id rejected with 400', bad.status === 400, `status=${bad.status}`)
 
 // ---- 5. bulk pre-flight (group cleanup) -----------------------------------
@@ -254,7 +307,7 @@ const BULK_IDLE = 'session-11111111-1111-4111-8111-111111111111'
 const BULK_RUNNING = 'session-22222222-2222-4222-8222-222222222222'
 const BULK_WAITING = 'session-33333333-3333-4333-8333-333333333333'
 
-const idlePre = await call('GET', `/_dsh-session-clean/precheck?sessionIds=${BULK_IDLE}`)
+const idlePre = await call('GET', `/_dsh-session-clean-ru/precheck?sessionIds=${BULK_IDLE}`)
 check('precheck of an idle batch is ok', idlePre.body?.ok === true && idlePre.body?.total === 1,
   JSON.stringify(idlePre.body))
 
@@ -268,20 +321,20 @@ extraAgents.set(BULK_WAITING, {
 })
 const busyPre = await call(
   'GET',
-  `/_dsh-session-clean/precheck?sessionIds=${BULK_IDLE},${BULK_RUNNING},${BULK_WAITING}`,
+  `/_dsh-session-clean-ru/precheck?sessionIds=${BULK_IDLE},${BULK_RUNNING},${BULK_WAITING}`,
 )
 check('precheck refuses a batch holding a running member', busyPre.body?.ok === false)
 check('precheck reports exactly the two busy members', busyPre.body?.busy?.length === 2,
   JSON.stringify(busyPre.body?.busy?.map((entry) => entry.sessionId)))
 check('precheck keeps every member in the report', busyPre.body?.sessions?.length === 3)
 
-const emptyPre = await call('GET', '/_dsh-session-clean/precheck?sessionIds=')
+const emptyPre = await call('GET', '/_dsh-session-clean-ru/precheck?sessionIds=')
 check('precheck rejects an empty batch with 400', emptyPre.status === 400, `status=${emptyPre.status}`)
-const malformedPre = await call('GET', '/_dsh-session-clean/precheck?sessionIds=not-a-session')
+const malformedPre = await call('GET', '/_dsh-session-clean-ru/precheck?sessionIds=not-a-session')
 check('precheck rejects a malformed id with 400', malformedPre.status === 400, `status=${malformedPre.status}`)
 const tooMany = await call(
   'GET',
-  `/_dsh-session-clean/precheck?sessionIds=${Array.from({ length: 201 }, (_, index) =>
+  `/_dsh-session-clean-ru/precheck?sessionIds=${Array.from({ length: 201 }, (_, index) =>
     `session-${String(index).padStart(8, '0')}-0000-4000-8000-000000000000`).join(',')}`,
 )
 check('precheck rejects an over-limit batch with 400', tooMany.status === 400, `status=${tooMany.status}`)

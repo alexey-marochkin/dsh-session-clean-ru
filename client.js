@@ -1,5 +1,5 @@
 /**
- * Client half of the `dsh-session-clean` bundle.
+ * Client half of the `dsh-session-clean-ru` bundle.
  *
  * Registers one row in the shipped `sidebar.workspaces.session.menu.item`
  * list — the same list the built-in pin / rename / fork / archive rows live
@@ -19,17 +19,57 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-session-clean',
+  id: 'dsh-session-clean-ru',
   factory(require) {
     // Human-synced copy of package.json#version: client bundles cannot read
     // package.json at runtime. Bump together with `npm version`.
-    const VERSION = '1.6.6'
+    const VERSION = '1.6.6-ru.1'
 
     const React = require('react')
     const h = React.createElement
 
-    const NS = 'dsh-session-clean'
+    const NS = 'dsh-session-clean-ru'
+    const HTTP_PREFIX = '/_dsh-session-clean-ru'
     const DICT = {
+      ru: {
+        menu: 'Удалить чат',
+        menuBusy: 'Чат занят — удалить нельзя',
+        confirmTitle: 'Удалить этот чат?',
+        confirmDesc: 'История чата «{title}» и его локальные данные будут удалены безвозвратно.',
+        confirmNote: 'Пока в чате выполняется задача или ожидается ваш ответ, удалить его нельзя.\nЕсли удалить открытый чат, DSH откроет новый в том же рабочем пространстве.\nЕсли DSH не сможет безопасно выгрузить чат, удаление будет отменено.',
+        confirmBusy: 'Чат ещё занят, поэтому удалить его нельзя.',
+        confirmAction: 'Удалить навсегда',
+        cancel: 'Отмена',
+        deleting: 'Удаление…',
+        done: 'Чат удалён',
+        doneUnloaded: 'Чат и его данные удалены',
+        doneLive: 'Данные удалены. Запись о чате временно скрыта и видна при показе архивных чатов. После перезапуска DSH она исчезнет.',
+        failed: 'Не удалось удалить чат: {message}',
+        attachmentsSkipped: 'Вложения сохранены: безопасную очистку подтвердить не удалось.',
+        cleanupFooter: 'Очистить чаты',
+        cleanupTitle: 'Очистка чатов',
+        cleanupDesc: 'Выберите рабочее пространство, в котором хотите удалить все чаты. Отменить удаление нельзя. Если хотя бы один чат занят, ни один чат не будет удалён.',
+        cleanupEmpty: 'В рабочих пространствах нет чатов',
+        cleanupCount: 'Чаты: {n}',
+        cleanupCountTotal: 'Всего чатов: {n}',
+        cleanupBusyTag: 'занято: {n}',
+        cleanupAction: 'Очистить',
+        cleanupConfirmTitle: 'Удалить все чаты в разделе «{title}»?',
+        cleanupConfirmDesc: 'История и локальные данные выбранных чатов будут удалены безвозвратно. Чатов к удалению: {n}.',
+        cleanupBusyBlocked: 'Занятых чатов: {n}. Удаление отменено для всех чатов. Дождитесь завершения работы и попробуйте снова.',
+        cleanupWorking: 'Удаление: {done}/{total}…',
+        cleanupDone: 'Удалено чатов: {n}',
+        cleanupPartial: 'Удалено чатов: {n}. Не удалось удалить: {m}.',
+        cleanupClose: 'Закрыть',
+        cleanupActionRemove: 'Удалить чаты и пространство',
+        cleanupButtonHints: '«Удалить навсегда» — удалить только чаты.\n«Удалить чаты и пространство» — удалить чаты и убрать рабочее пространство из списка. Папка проекта останется.',
+        cleanupRemoveDone: 'Чаты удалены, рабочее пространство «{title}» убрано из списка',
+        cleanupRemoveUnavailable: 'Чаты удалены. Эта версия DSH не позволяет убрать рабочее пространство из списка.',
+        cleanupUngrouped: 'Без группы',
+        cleanupUngroupedHint: 'Чаты без рабочего пространства, в том числе оставшиеся после его удаления',
+        cleanupArchivedTag: 'скрыто: {m}',
+        cleanupArchivedNote: 'Будут удалены и чаты, скрытые в обычном списке (например, архивные чаты и чаты субагентов). Таких чатов: {m}.',
+      },
       zh: {
         menu: '删除会话',
         menuBusy: '会话运行中，无法删除',
@@ -44,6 +84,7 @@ window.__ModuleLoader__.load({
         doneUnloaded: '会话已删除：数据已清除，列表里也不会再出现',
         doneLive: '数据已删除，但这次没能把会话彻底移除：先临时藏了起来（切到「显示已归档」能看到），重启 DSH 后彻底消失',
         failed: '删除失败：{message}',
+        attachmentsSkipped: '附件已保留：无法确认能否安全清理。',
         cleanupFooter: '清理分组',
         cleanupTitle: '清理会话分组',
         cleanupDesc: '选择一个分组，删除它下面的全部会话。此操作不可恢复，运行中的会话会被整批拦下。',
@@ -82,6 +123,7 @@ window.__ModuleLoader__.load({
         doneUnloaded: 'Session deleted: the data is gone and it will not come back in the list',
         doneLive: 'The data is deleted, but the session itself could not be fully removed this time: it is hidden for now (visible under “show archived”) and disappears for good after a DSH restart',
         failed: 'Delete failed: {message}',
+        attachmentsSkipped: 'Attachments were kept because safe cleanup could not be verified.',
         cleanupFooter: 'Clean workspace',
         cleanupTitle: 'Clean a workspace',
         cleanupDesc: 'Pick a workspace and delete every session it owns. This cannot be undone; a batch containing any running session is refused as a whole.',
@@ -108,7 +150,7 @@ window.__ModuleLoader__.load({
       },
     }
 
-    const STYLE_ID = 'dsh-session-clean-style'
+    const STYLE_ID = `${NS}-style`
 
     function ensureStyles() {
       if (document.getElementById(STYLE_ID)) return
@@ -131,7 +173,7 @@ window.__ModuleLoader__.load({
 .dsh-sd-desc { margin: 0 0 14px; font-size: 15.5px; line-height: 23px; color: var(--dsw-alias-label-secondary, #aaa); word-break: break-all; }
 .dsh-sd-note { margin: -6px 0 14px; font-size: 15px; line-height: 21px; color: var(--dsw-alias-label-secondary, #999); white-space: pre-line; }
 .dsh-sd-warn { margin: 0 0 14px; font-size: 15.5px; color: var(--dsw-alias-state-error-primary, #f85149); }
-.dsh-sd-footer { display: flex; justify-content: flex-end; gap: 8px; }
+.dsh-sd-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .dsh-sd-btn { padding: 7px 16px; border-radius: 8px; border: .5px solid var(--dsw-alias-border-l2, #444); background: transparent; color: inherit; font: inherit; font-size: 15.5px; cursor: pointer; }
 .dsh-sd-btn:disabled { opacity: .55; cursor: default; }
 .dsh-sd-btn[data-danger="true"] { border-color: transparent; background: var(--dsw-alias-state-error-primary, #d1242f); color: #fff; }
@@ -153,26 +195,10 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style)
     }
 
-    /**
-     * Register one locale namespace and return its translator.
-     *
-     * The registration rides a keyed effect: re-apply dedupes by id and the
-     * returned disposer tears the dictionaries down with the plugin, so an
-     * unload/reload cycle re-registers cleanly. The narrow catch only
-     * swallows the "already has locale" owner clash (concurrent double
-     * load); every other error still throws.
-     * @param {object} ctx - the client plugin context.
-     * @returns {(key: string, params?: object) => string} the translator.
-     */
-    function bindLocale(ctx) {
-      ctx.effect(() => {
-        try {
-          return ctx.locale.register(NS, { zh: DICT.zh, en: DICT.en })
-        } catch (error) {
-          if (!String(error?.message).includes('already has locale')) throw error
-        }
-      }, 'dsh-session-clean: locale')
-      return ctx.locale.bind(NS)
+    // Добавляет предупреждение к результату удаления, если Host сохранил вложения.
+    function deletionNotice(t, key, params, attachmentsSkipped) {
+      const message = t(key, params)
+      return attachmentsSkipped ? `${message} · ${t('attachmentsSkipped')}` : message
     }
 
     /* ------------------------------------------------------------------ *
@@ -337,7 +363,7 @@ window.__ModuleLoader__.load({
         const wasOpen = pendingRequest?.wasOpen === true
         const workspaceId = pendingRequest?.workspaceId
         try {
-          const response = await fetch('/_dsh-session-clean/delete', {
+          const response = await fetch(`${HTTP_PREFIX}/delete`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'content-type': 'application/json' },
@@ -352,7 +378,8 @@ window.__ModuleLoader__.load({
           // hidden (degraded probe) / it was already cold.
           const unloaded = payload?.unloaded === true
           const stillLive = payload?.live === true
-          setToast(t(unloaded ? 'doneUnloaded' : stillLive ? 'doneLive' : 'done'))
+          setToast(deletionNotice(t, unloaded ? 'doneUnloaded' : stillLive ? 'doneLive' : 'done', undefined,
+            payload?.attachments?.status === 'skipped'))
           settleRequest()
           // Re-pull the session baseline: a *cold* delete leaves no unload
           // event behind, so without this the dead row lingers in the client
@@ -597,7 +624,7 @@ window.__ModuleLoader__.load({
       /**
        * Delete one batch serially behind the whole-batch idle gate.
        * @param {string[]} sessionIds - every member to delete.
-       * @returns {Promise<{ok: number, failed: number, openDeleted: boolean} | null>} null when refused.
+       * @returns {Promise<{ok: number, failed: number, openDeleted: boolean, attachmentsSkipped: boolean} | null>} null when refused.
        */
       const deleteBatch = async (sessionIds) => {
         setError(null)
@@ -614,7 +641,7 @@ window.__ModuleLoader__.load({
         })
         try {
           const query = sessionIds.map((sessionId) => encodeURIComponent(sessionId)).join(',')
-          const precheck = await fetch(`/_dsh-session-clean/precheck?sessionIds=${query}`, {
+          const precheck = await fetch(`${HTTP_PREFIX}/precheck?sessionIds=${query}`, {
             credentials: 'same-origin',
           }).then((response) => response.json()).catch(() => ({}))
           if (precheck?.ok !== true) {
@@ -624,18 +651,21 @@ window.__ModuleLoader__.load({
           }
           let ok = 0
           let failed = 0
+          let attachmentsSkipped = false
           setProgress({ done: 0, total: sessionIds.length })
           for (let index = 0; index < sessionIds.length; index += 1) {
             try {
-              const response = await fetch('/_dsh-session-clean/delete', {
+              const response = await fetch(`${HTTP_PREFIX}/delete`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ sessionId: sessionIds[index] }),
               })
               const payload = await response.json().catch(() => ({}))
-              if (response.ok && payload?.ok === true) ok += 1
-              else failed += 1
+              if (response.ok && payload?.ok === true) {
+                ok += 1
+                if (payload?.attachments?.status === 'skipped') attachmentsSkipped = true
+              } else failed += 1
             } catch {
               failed += 1
             }
@@ -643,8 +673,8 @@ window.__ModuleLoader__.load({
           }
           refreshSessions()
           setProgress(null)
-          setToast(failed === 0 ? t('cleanupDone', { n: ok }) : t('cleanupPartial', { n: ok, m: failed }))
-          return { ok, failed, openDeleted }
+          setToast(deletionNotice(t, failed === 0 ? 'cleanupDone' : 'cleanupPartial', { n: ok, m: failed }, attachmentsSkipped))
+          return { ok, failed, openDeleted, attachmentsSkipped }
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : String(reason))
           setProgress(null)
@@ -709,7 +739,8 @@ window.__ModuleLoader__.load({
         setTarget(null)
         if (removed) {
           publishCleanup({ open: false })
-          setToast(t('cleanupRemoveDone', { title: workspace.title || workspace.path || workspace.workspaceId }))
+          setToast(deletionNotice(t, 'cleanupRemoveDone', { title: workspace.title || workspace.path || workspace.workspaceId },
+            result.attachmentsSkipped))
         }
         if (result.openDeleted || removed) openFirstAliveWorkspace(workspace.workspaceId)
       }
@@ -855,7 +886,8 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale'],
       apply(ctx) {
         ensureStyles()
-        const t = bindLocale(ctx)
+        ctx.effect(() => ctx.locale.register(NS, DICT), `${NS}: locale`)
+        const t = ctx.locale.bind(NS)
 
         // The stylesheet has to go away with the plugin (same contract the
         // shipped checkers enforce on every dynamic client half).
@@ -865,22 +897,22 @@ window.__ModuleLoader__.load({
 
         ctx.slots.inject('sidebar.footer.action', () =>
           ctx.slots.register(
-            { name: 'sidebar.footer.action', id: 'dsh-session-clean', order: 20, label: () => t('cleanupFooter') },
-            (props) => h(CleanupFooterAction, { ...props, t }),
+            { name: 'sidebar.footer.action', id: NS, locale: NS, order: 20, label: () => t('cleanupFooter') },
+            (props) => h(CleanupFooterAction, props),
           ),
         )
 
         ctx.slots.inject('sidebar.workspaces.session.menu.item', () =>
           ctx.slots.register(
-            { name: 'sidebar.workspaces.session.menu.item', id: 'dsh-session-clean', order: 500 },
-            (props) => h(DeleteSessionMenuItem, { ...props, ctx, t }),
+            { name: 'sidebar.workspaces.session.menu.item', id: NS, locale: NS, order: 500 },
+            (props) => h(DeleteSessionMenuItem, { ...props, ctx }),
           ),
         )
 
         ctx.slots.inject('shell.overlay', () =>
           ctx.slots.register(
-            { name: 'shell.overlay', id: 'dsh-session-clean' },
-            () => h(DeleteSessionOverlay, { t, ctx }),
+            { name: 'shell.overlay', id: NS, locale: NS },
+            (props) => h(DeleteSessionOverlay, { ...props, ctx }),
           ),
         )
 
@@ -890,8 +922,8 @@ window.__ModuleLoader__.load({
         // `useSessionStatus`, …) as props — they must be forwarded.
         ctx.slots.inject('shell.overlay', () =>
           ctx.slots.register(
-            { name: 'shell.overlay', id: 'dsh-session-clean-cleanup', order: 10 },
-            (props) => h(CleanupPanel, { ...props, t, ctx }),
+            { name: 'shell.overlay', id: `${NS}-cleanup`, locale: NS, order: 10 },
+            (props) => h(CleanupPanel, { ...props, ctx }),
           ),
         )
       },

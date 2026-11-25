@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Delete chats",
+    "description": "Use Delete session in a chat’s ⋯ menu or Clean workspace at the bottom of the sidebar. After confirmation, the plugin permanently deletes the selected chat or all chats in a workspace, including hidden ones. You can also remove the workspace from the list without deleting its folder. Chats with work in progress cannot be deleted."
+  }
+}

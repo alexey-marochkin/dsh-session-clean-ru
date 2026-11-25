@@ -1,270 +1,61 @@
-# DeepSeekHarness Session Delete / DSH 删除会话
+# Удаление чатов DSH
 
-[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/ansellwan/deepseekharness-session-delete)
-[![npm](https://img.shields.io/npm/v/dsh-session-clean?label=npm)](https://www.npmjs.com/package/dsh-session-clean)
-[![downloads](https://img.shields.io/npm/dm/dsh-session-clean?label=downloads)](https://www.npmjs.com/package/dsh-session-clean)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
+`dsh-session-clean-ru` — локальный русскоязычный форк [dsh-session-clean](https://github.com/Ansellwan/DeepSeekHarness-Session-Delete) автора [Ansellwan](https://github.com/Ansellwan). Он добавляет в DeepSeek Harness (DSH) удаление отдельного чата и пакетную очистку чатов рабочего пространства. **Удаление чатов необратимо: корзины и отмены нет. Файлы вложений не удаляются.**
 
-**English** | [简体中文](#简体中文)
+## Удаление из меню чата
 
----
+1. Откройте меню `⋯` нужного чата и выберите **Удалить чат**.
+2. Проверьте, что выбран нужный чат, и нажмите **Удалить навсегда**.
 
-## English
+Можно удалять и архивные чаты. Если чат занят (например, отвечает или ждёт подтверждения), действие недоступно. Перед удалением DSH повторно проверяет состояние чата. Если открытый чат нельзя безопасно выгрузить из памяти, форк сообщает об ошибке и не удаляет его данные; он не подменяет удаление скрытием в архиве.
 
-DeepSeek Harness has archive, rename and fork — but no way to **delete** a conversation. This plugin adds the missing red **Delete session** row to every session's `⋯` menu, with a confirmation dialog in front of it. It deletes for real: no hidden leftovers that quietly come back.
+Ниже — русифицированные иллюстрации на основе оригинальных демонстраций Ansellwan, а не снимки рабочего профиля DSH.
 
-![Delete session in the session menu](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo.png) ![Confirmation dialog](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-confirm.png) ![Greyed out while the session is busy](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-busy.png)
+![Пункт удаления в меню чата](docs/demo.png)
+![Подтверждение удаления чата](docs/demo-confirm.png)
+![Удаление недоступно, пока чат занят](docs/demo-busy.png)
 
-### Install
+## Удаление через агента
 
-**Primary tested target: the DeepSeek Harness desktop app.** The browser-form web profile (`dsh web`) is expected to work — the plugin uses only web-surface APIs and has no desktop-only calls — but it has **not been separately tested**; web users try it at their own risk and are welcome to report back.
+Попросите агента: «Удали чат с точным названием „Черновик отчёта“». Инструмент `delete_chat_by_title` ищет одно точное совпадение с учётом регистра, показывает название и идентификатор чата в запросе на подтверждение и ждёт разового разрешения через штатный механизм DSH (`approval`). Сообщение в чате не заменяет это подтверждение.
 
-```bash
-# From npm (recommended) — desktop app, the tested target
-dsh plugin --profile desktop add dsh-session-clean
+Если совпадений нет или их несколько, не удалось проверить все заголовки, изменилось название выбранного чата или DSH не выдал разовое разрешение, удаления не будет. Если механизм подтверждения недоступен, инструмент не регистрируется. Нельзя удалить чат, из которого отправлен запрос; для этого откройте другой чат или воспользуйтесь меню.
 
-# Browser-form profile (dsh web) — expected to work, NOT separately tested
-dsh plugin --profile web     add dsh-session-clean
+## Пакетная очистка рабочего пространства
 
-# From GitHub (desktop)
-dsh plugin --profile desktop add github:Ansellwan/DeepSeekHarness-Session-Delete
-```
+Нажмите **Очистить чаты** внизу боковой панели, выберите пространство или раздел **Без группы**, проверьте число чатов и подтвердите очистку. В число чатов входят архивные и другие чаты, не показанные в текущем списке. Если предварительная проверка находит занятый чат, очистка не начинается. Затем чаты удаляются по одному, с повторными проверками; возможен частичный результат.
 
-Restart DSH afterwards (the software build has no hot reload; for a `dsh web` server, restart the process).
-
-**Upgrade** (add does not upgrade by itself):
-
-```bash
-dsh plugin --profile desktop add dsh-session-clean@<version>
-```
-
-**Uninstall**:
-
-```bash
-dsh plugin --profile desktop remove dsh-session-clean
-```
-
-### What you get
-
-- A red **Delete session** item in every session's `⋯` menu, after pin / rename / fork / archive.
-- It greys out by itself while that session is busy (replying, or waiting for your approval or answer).
-- Archived sessions can be deleted too — clearing the archive out is the main reason people install this.
-- One confirmation dialog, then it is done.
-- A **Clean workspace** action at the sidebar foot: pick a workspace, see how many sessions it holds, confirm once, and every session in it is deleted in one go.
-
-### Cleaning a whole workspace
-
-Click **Cleanup** at the bottom of the sidebar, pick a workspace, hit **Clean** — every session in it goes in one step. The list also has an **Ungrouped** row for sessions no workspace owns; those can be cleaned too.
-
-![The cleanup panel: pick a workspace, then Clean](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-cleanup.png)
-
-Four things worth knowing before you click:
-
-- **A busy workspace refuses to clean.** If any session is replying or waiting for your approval, the button is greyed out.
-- **Archived sessions go too.** The row says "N sessions in total · M not in the list" — the count you see is the count that disappears.
-- **The workspace is kept by default.** After cleaning it becomes an empty group you can start new sessions in; to drop it as well, pick **Clean and remove group** instead.
-- **You get feedback all the way.** Progress while it runs, a count when it ends, and if the session you were viewing was deleted, the view moves on to a new session in the same workspace.
-
-![The confirmation](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-cleanup-confirm.png) ![Finished](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-cleanup-done.png)
-
-### Two ways to remove a workspace — deliberately different
-
-The shipped **Delete workspace** action and the panel's **Clean** do different things, and this plugin never second-guesses the official one:
-
-| What you do | Sessions | The group |
-|---|---|---|
-| Shipped **Delete workspace** | kept — they move to Ungrouped | unregistered |
-| Panel → **Clean** | deleted | kept, as an empty group you can start sessions in |
-| Panel → **Clean and remove group** | deleted | unregistered |
-
-**Which one to pick:** to remove the workspace along with its sessions, choose **Clean and remove group** and confirm once (the confirmation still names the exact session count); to only clear the conversations and keep the group for future work, choose **Clean**.
-
-### What deleting actually does
-
-1. **The data is gone for good.** Unlike archive, there is no undo and no recycle bin.
-2. **Sessions that are open right now can be deleted too.** The row disappears from the sidebar immediately — no restart, and refreshing the page does not bring it back. If it was the conversation you were looking at, the view moves on to a fresh session in the same workspace, so you are not left staring at a deleted transcript.
-3. **If a full delete is not possible**, the plugin only hides the session for now and tells you so. It never pretends to have deleted something it could not.
-
-### What is deleted, and what is left alone
-
-| | |
+| Действие | Что происходит |
 |---|---|
-| ✅ Deleted | The conversation itself, its cached title / outline / token stats, oversized tool output spilled to disk, and its entries in the sidebar bookkeeping (grouping, pin, archive) |
-| ❌ Left alone | Attachments under `~/.dsh/attachments/` — they are stored by content hash and can be shared by several conversations, so deleting one session's copy could damage another conversation |
-| ❌ Left alone | This plugin's own log (`~/.dsh/logs/session-delete.log`) — it records what was deleted |
-| ❌ Left alone | Copies that other plugins make into their own databases |
+| Штатное **Удалить рабочее пространство** | Пространство убирается из списка, чаты сохраняются в разделе **Без группы**. |
+| **Очистить чаты** → **Удалить навсегда** | Плагин удаляет чаты и оставляет рабочее пространство в списке. |
+| **Очистить чаты** → **Удалить чаты и пространство** | Плагин запускает удаление чатов, затем пытается убрать рабочее пространство из списка. Папка проекта не удаляется. |
 
-Until the DSH process exits, an empty session object stays in memory — DSH offers no official way to clear it. It no longer shows up in any list, and it is gone after a restart.
+![Выбор рабочего пространства для очистки](docs/demo-cleanup.png)
+![Подтверждение пакетной очистки](docs/demo-cleanup-confirm.png)
+![Результат пакетной очистки](docs/demo-cleanup-done.png)
 
-### FAQ
+## Что удаляется
 
-- **Can I get a deleted session back?** No. There is no undo.
-- **Can I delete a session that is replying right now?** No — the action is blocked until it stops, and it tells you why.
-- **It said "hidden for now" — what does that mean?** That DSH build does not allow a full removal, so the plugin hid the session instead of lying to you. The row disappears for good after you restart DSH.
-- **What if I delete the session I am looking at?** It works; the window is simply empty until you open another session.
-- **Can it damage another conversation?** No. Only files belonging to that one session are touched.
-- **Do I have to restart after deleting?** No.
-- **Does it talk to the internet?** No network calls, no telemetry.
+- Журнал выбранного чата, запись в кэше `session_projcache` (например, заголовок, оглавление и статистика токенов), каталог больших выводов инструментов и ссылки на чат в реестре рабочих пространств, архива и закреплений.
+- Не удаляются файлы вложений в `~/.dsh/attachments/`, журнал операций плагина `~/.dsh/logs/session-delete.log` и копии данных в хранилищах других плагинов.
 
-### Permissions & privacy
+### Вложения: только анализ ссылок
 
-- Opens one **local-only** HTTP route inside your own DSH process, behind DSH's own connection trust check — outside connections cannot reach it.
-- Deletes only that one session's own files: `~/.dsh/sessions/…`, `~/.dsh/storages/session_projcache/…`, and its spilled-output folder inside the temp directory.
-- No network calls, no telemetry, no external services.
+Форк ищет ссылки на изображения и файлы только в журнале удаляемого чата, а журналы других чатов читает, чтобы выявить общие вложения. Файлы вложений сохраняются независимо от результата проверки. В DSH `0.2.2-rc.3` такая проверка не видит вложения, загруженные, но ещё не отправленные в чат, и может не увидеть нечитаемые журналы.
 
-### Compatibility
+Для будущего физического удаления можно рассматривать только вложения из удаляемого чата. Общие вложения должны оставаться; удалять файл допустимо лишь тогда, когда DSH может подтвердить, что ни один другой чат или незавершённая загрузка на него не ссылается. Отсутствия ссылок в доступных журналах для этого недостаточно. В текущем форке физическое удаление вложений не реализовано.
 
-| | |
-|---|---|
-| DeepSeek Harness | desktop `0.2.0-rc.2` tested at launch; `0.2.2-rc.5` — the author's daily driver |
-| Profile | **desktop: tested and supported.** Web-surface profiles (browser-form `dsh web`): expected to work (only web-surface APIs are used, no desktop-only calls) but **not separately tested — try at your own risk and report back** |
-| Node | ≥ 18 (ships with the DSH runtime) |
-| Capability class | 界面与体验 (UI & experience) |
+## Технические примечания
 
-### Technical notes (safe to skip)
+- `client.js` добавляет пункт в `sidebar.workspaces.session.menu.item` и показывает подтверждение через `shell.overlay`. Клиент обращается к маршруту `/_dsh-session-clean-ru` внутри DSH; хост проверяет доверие соединения штатным механизмом DSH. Форк не отправляет телеметрию и не обращается к внешним сервисам.
+- `index.js` выгружает незанятый чат, если тот находится в памяти, затем исключает его из реестра и удаляет сохранённые данные. Для выгрузки используются внутренние методы `liveEntryFor` и `detachEntered`; форк не меняет `app.asar` и не заменяет штатные действия DSH.
+- [Предложение по публичному API выгрузки и удаления чатов](<docs/Предложение по API выгрузки чатов.md>) — перевод исторического черновика исходного проекта, а не описание поддерживаемого API текущей версии DSH.
 
-- **Client half (`client.js`)**
-  - Registers one `order: 500` row in the official `sidebar.workspaces.session.menu.item` slot list — the same list the built-in rows use (`pin=100 / rename=200 / fork=300 / archive=400`), an officially supported extension point.
-  - Busy state comes from the host-injected `useSessionStatus` snapshot.
-  - The confirmation dialog lives in the frame-wide `shell.overlay` slot, so closing the menu cannot kill it.
-- **Host half (`index.js`)**
-  - Registers a private `/_dsh-session-clean` route that re-probes the session before deleting.
-  - Deletion runs in a fixed three-step order:
-    1. Unload the session from the Host's live store.
-    2. Remove it from the workspace registry (global archive / pinned sets + each workspace's session list).
-    3. Erase the durable files (log directory, `session_projcache` record, spill directory).
-  - Registry writes go through the same open storage-domain handle the registry itself holds — writes persist and emit the change event the sidebar refreshes from.
-- **Unloading a resident session** uses the framework's own teardown primitive, `SessionStore.liveEntryFor(session).detach()` — the same `store.delete` + `session/disposed` an owner's unload performs. That event is what the session controller turns into `api-session/removed`, which makes the browser drop the row for real and closes the session's log writer, so the transcript cannot be re-persisted. `liveEntryFor` / `detachEntered` are internal (absent from the generated API catalog), so each step is capability-probed; any failure falls back to a reported hide instead of a silent lie.
-- **The projection cache needs its own handling**: it is a self-healing write-behind cache whose real domain table is `sessions`, keyed by the full session id. Removing the key through the live domain — not just the backing file — is what stops the next checkpoint from recreating the document.
-- **Upgrades stay safe**: no `app.asar` patching and no overriding of official loader rows.
-## 简体中文
+## Проверка и статус
 
-DSH 有归档、重命名、分叉，却**没有删除会话**。这个插件在侧栏每个会话的 `⋯` 菜单里补上一项红色「删除会话」，点之前先弹确认框。删就是真删：不会给你留个"看起来删了、过两天又冒出来"的尾巴。
+Из каталога форка можно запустить `npm test`: тесты используют изолированные данные. Форк не установлен в рабочем профиле DSH. Инструкции по установке и сведения о совместимости оригинала не относятся к этому форку.
 
-![会话菜单中的「删除会话」](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo.png) ![删除确认框](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-confirm.png) ![会话运行中，删除自动置灰](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-busy.png)
+## Авторство и лицензия
 
-### 安装
-
-**主测试目标是 DeepSeek Harness 桌面版。** 浏览器形态的 web profile（`dsh web`）按设计应当可用——插件只用到 Web 面 API，没有任何桌面端专属调用——但**未单独实测**；Web 端用户请自行尝试，欢迎反馈结果。
-
-```bash
-# 从 npm 安装（推荐）—— 桌面版，已实测的主目标
-dsh plugin --profile desktop add dsh-session-clean
-
-# 浏览器形态 profile（dsh web）—— 按设计可用，但未单独实测
-dsh plugin --profile web     add dsh-session-clean
-
-# 从 GitHub 安装（桌面版）
-dsh plugin --profile desktop add github:Ansellwan/DeepSeekHarness-Session-Delete
-```
-
-安装后**重启 DSH**（软件形态没有热刷新；`dsh web` 服务重启进程即可）。
-
-**升级**（add 不会自动升版，须显式版本号）：
-
-```bash
-dsh plugin --profile desktop add dsh-session-clean@<新版本号>
-```
-
-**卸载**：
-
-```bash
-dsh plugin --profile desktop remove dsh-session-clean
-```
-
-### 它能做什么
-
-- 每个会话的 `⋯` 菜单里多一项红色「**删除会话**」（排在置顶 / 重命名 / 分叉 / 归档之后）
-- 会话正在干活时（回复中，或等你审批 / 回答）**自动变灰**，点不动
-- **已归档的会话一样能删**——清库存最好用
-- 删除前弹一次确认框，确认后才动手
-- 侧栏底部多一个「**清理分组**」入口：选一个分组、看清会话数量、确认一次，整组会话一次删完
-
-### 清理整个分组
-
-点侧栏底部的「清理分组」，选一个分组，点「清空」——整组会话一次性删掉。列表末尾还有一行「未分组」，收着不属于任何分组的会话，同样可以清。
-
-![清理分组面板：选一个分组，点清空](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-cleanup.png)
-
-清空前，四件事值得知道：
-
-- **有会话在跑就清不了。** 组里有会话正在回复、或等你确认时，按钮是灰的。
-- **已归档的会话也一起删。** 行上写明「共 N 个会话 · M 个不在列表」——看到多少，删多少。
-- **分组默认保留。** 清空后它变成空分组，可以继续建新会话；想连分组一起删，改点「清空并移除分组」。
-- **全程有反馈。** 清理时显示进度，结束报告删了几个；如果删的正好是你正在看的会话，界面会自动切到同分组的新会话。
-
-![清空确认框](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-cleanup-confirm.png) ![清理完成](https://raw.githubusercontent.com/Ansellwan/DeepSeekHarness-Session-Delete/main/docs/demo-cleanup-done.png)
-
-### 「删分组」的两条路，是故意分开的
-
-官方「删除工作区」和面板的「清空」做的不是同一件事，本插件**从不替官方动作做决定**：
-
-| 你做的操作 | 会话 | 分组 |
-|---|---|---|
-| 官方 **删除工作区** | 保留——下沉到「未分组」 | 注销 |
-| 面板 → **清空** | 删除 | 保留，变成一个可以新建会话的空分组 |
-| 面板 → **清空并移除分组** | 删除 | 注销 |
-
-**怎么选，一眼定**：想连分组一起清掉 → 「清空并移除分组」，确认一次即可（确认框仍会写明会话数量）；只想清掉对话、留着分组以后继续用 → 「清空」。
-
-### 删除到底做了什么
-
-1. **数据真的没了，删了找不回来**（和「归档」不一样：归档只是收起来）
-2. **正开着的会话也能删**：删完侧栏里立刻就没有它了，不用重启，刷新页面也不会回来；如果删的正是你正在看的那个会话，界面会自动切到同工作区的新会话，不会停在一个已被删除的对话上
-3. **万一这次删不彻底**，插件只会先把它藏起来，并且**直接告诉你**——不会假装已经删干净
-
-### 会删掉什么，不会删什么
-
-| | |
-|---|---|
-| ✅ 会删 | 这段对话本身，它的标题 / 大纲 / token 统计等缓存，工具输出过长时落盘的溢出文件，以及它在侧栏里的各种登记（分组、置顶、归档） |
-| ❌ 不动 | `~/.dsh/attachments/` 里的附件原件——它们按内容存一份，多个会话可能共用同一份，按会话删会连累别的对话 |
-| ❌ 不动 | 本插件自己的日志（`~/.dsh/logs/session-delete.log`，记录删过谁、删了哪些文件） |
-| ❌ 不动 | 其他插件自己抄到各自数据库里的副本 |
-
-另外，DSH 进程退出前，内存里还会留一个空的会话对象（官方没提供清理它的接口）。它不会再出现在任何列表里，重启后彻底消失。
-
-### 常见问题
-
-- **删了还能恢复吗？** 不能。没有回收站，也没有撤销。
-- **正在回复的会话能删吗？** 不能，会被拦下并提示原因；等它停下来再删。
-- **提示"先藏起来"是什么意思？** 说明当前 DSH 版本不支持彻底移除，插件只能先把它隐藏，并如实告诉你；这一行会在**重启 DSH 后彻底消失**。插件宁可说清楚，也不会假装删成功。
-- **删的时候正在看这个会话怎么办？** 能删，但删完窗口会空着，点开别的会话即可。
-- **会误删别的会话吗？** 不会。只动这一个会话自己的文件。
-- **删完要不要重启才生效？** 不用。
-- **会联网吗？** 不会，没有任何网络请求、没有遥测。
-
-### 权限与隐私
-
-- 只在你自己的 DSH 进程里开一个**仅本机**可用的接口，并走 DSH 官方同一道连接信任检查，外部连不进来
-- 只删这一个会话自己的文件：`~/.dsh/sessions/…`、`~/.dsh/storages/session_projcache/…`，以及临时目录里属于它的溢出文件目录
-- 无网络请求、无遥测、无外部服务
-
-### 兼容性
-
-| | |
-|---|---|
-| DeepSeek Harness | 桌面版 `0.2.0-rc.2`（首发实测）；`0.2.2-rc.5`（作者日常使用、持续实测） |
-| Profile | **desktop：已实测、正式支持。** Web 形态 profile（`dsh web` 浏览器形态）：按设计可用（只用到 Web 面 API，无桌面端专属调用），但**未单独实测——请自行尝试并反馈遇到的问题** |
-| Node | ≥ 18（DSH 运行时自带） |
-| 能力分类 | 界面与体验 |
-
-### 技术说明（普通用户可跳过）
-
-- **客户端半（`client.js`）**
-  - 向官方 slot 列表 `sidebar.workspaces.session.menu.item` 注册 `order: 500` 的菜单行——与内置 pin=100 / rename=200 / fork=300 / archive=400 同一列表，官方支持的扩展点
-  - 忙碌状态来自宿主注入的 `useSessionStatus` 快照
-  - 确认弹窗挂在框架级 `shell.overlay` 槽位——菜单关闭不会连带销毁弹窗
-- **宿主半（`index.js`）**
-  - 注册私有路由 `/_dsh-session-clean`，删除前先重探会话活动
-  - 删除按固定三步顺序执行：
-    1. 把仍驻留内存的会话从宿主活动存储中卸载
-    2. 从工作区注册表移除（全局归档 / 置顶集 + 各工作区会话列表）
-    3. 清理落盘数据（会话目录、`session_projcache` 投影缓存记录、spill 溢出目录）
-  - 注册表写入走注册表自己已打开的同一个存储域句柄——写即持久化并发出变更事件，侧栏据此刷新
-- **卸载活会话**：用框架自己的拆除原语 `SessionStore.liveEntryFor(session).detach()`——即属主卸载时执行的同一段 `store.delete` + `session/disposed`。该事件被会话控制器转成 `api-session/removed`，客户端据此真的把那一行删掉，同时关闭该会话的日志写入器，对话记录不会被重新落盘。`liveEntryFor` / `detachEntered` 属内部成员（不在生成的 API catalog 里），因此每一步都先做能力探测，失败就退化为「如实汇报的隐藏」，不做无声的假删除。
-- **投影缓存为什么单独处理**：它是「写回型自愈缓存」，域内真正的表名是 `sessions`、键为完整会话 id。必须通过活动域删键——只删文件不够，域内存里那行还在，下一次检查点会把文件重新写出来。
-- **升级安全**：不修改 `app.asar`，不 patch 任何官方装载行。
-## License / 许可证
-
-MIT
+© 2026 Ansellwan, автор [исходного проекта](https://github.com/Ansellwan/DeepSeekHarness-Session-Delete) и демонстрационных скриншотов. Форк сохраняет [лицензию MIT](LICENSE).

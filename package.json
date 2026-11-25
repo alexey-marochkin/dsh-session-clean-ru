@@ -1,14 +1,17 @@
 {
-  "name": "dsh-session-clean",
-  "version": "1.6.6",
-  "description": "为 DeepSeek Harness 侧栏会话补上官方缺失的「删除会话」：运行中置灰、二次确认、真正删除（列表、登记与磁盘数据一并清除，做不到时如实告知）；侧栏底部另有「清理分组」面板，可批量清空整组会话或清空并移除分组。Adds the missing per-session Delete action and a workspace cleanup panel to the DeepSeek Harness sidebar.",
+  "name": "dsh-session-clean-ru",
+  "version": "1.6.6-ru.1",
+  "private": true,
+  "description": "Удаление чатов с подтверждением и проверка ссылок на их вложения в DeepSeek Harness.",
   "type": "module",
   "license": "MIT",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
   "author": {
     "name": "Ansellwan",
@@ -25,20 +28,25 @@
     "session-management"
   ],
   "scripts": {
-    "test": "node tools/check-declaration.mjs && node tools/smoke-host.mjs",
-    "prepublishOnly": "node tools/check-declaration.mjs && node tools/smoke-host.mjs"
+    "test": "node tools/check-declaration.mjs && node tools/smoke-host.mjs && node --test tools/fork.test.mjs",
+    "prepublishOnly": "npm test"
   },
   "files": [
     "index.js",
+    "agent-tool.js",
+    "attachments.js",
     "client.js",
+    "locale",
+    "icon.svg",
     "cordis.patch.yml",
     "README.md",
-    "README.zh.md",
+    "docs/*.png",
+    "docs/Предложение по API выгрузки чатов.md",
     "LICENSE"
   ],
   "meta": {
-    "title": "删除会话",
-    "description": "在侧栏会话的 ⋯ 菜单里加入「删除会话」（运行中置灰、二次确认、真删），侧栏底部另有「清理分组」面板：批量清空整组会话，或清空并移除分组。"
+    "title": "Удаление чатов",
+    "description": "Удаление чатов из меню или по точному названию через агента, с подтверждением. Вложения проверяются, но не удаляются."
   },
   "dsh": {
     "bundle": {
